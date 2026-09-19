@@ -11,5 +11,6 @@ pub(crate) struct Kcp {
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct Payload {
   pub id: String,
+  pub event: String,
   pub data: Vec<u8>,
 }

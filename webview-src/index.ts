@@ -39,7 +39,7 @@ export async function send(id: string, message: string | number[]) {
 
 export interface Payload {
   id: string;
-  addr: string;
+  event: 'data' | 'closed';
   data: number[];
 }
 

@@ -24,10 +24,18 @@ async fn receive<R: Runtime>(window: tauri::Window<R>, id: String, mut reader: t
     let mut buffer = vec![0u8; 64 * 1024];
     loop {
         match reader.read(&mut buffer).await {
-            Ok(0) | Err(_) => break,
+            Ok(0) | Err(_) => {
+                let _ = window.app_handle().emit_to(window.label(), "plugin://kcp", Payload {
+                    id: id.clone(),
+                    event: "closed".into(),
+                    data: vec![],
+                });
+                break;
+            }
             Ok(len) => {
                 let _ = window.app_handle().emit_to(window.label(), "plugin://kcp", Payload {
                     id: id.clone(),
+                    event: "data".into(),
                     data: buffer[..len].to_vec(),
                 });
             }
@@ -40,7 +48,7 @@ fn spawn_receive<R: Runtime>(window: tauri::Window<R>, id: String, reader: tokio
 }
 
 pub async fn connect<R: Runtime>(window: tauri::Window<R>, id: String, remote: String) -> io::Result<()> {
-    close(id.clone()).await.ok();
+    close_session(id.clone()).await.ok();
     let config = KcpConfig::default();
     let stream = KcpStream::connect(&config, parse_addr(&remote)?).await.map_err(kcp_error)?;
     let (reader, writer) = tokio::io::split(stream);
@@ -51,7 +59,7 @@ pub async fn connect<R: Runtime>(window: tauri::Window<R>, id: String, remote: S
 }
 
 pub async fn listen<R: Runtime>(window: tauri::Window<R>, id: String, bind_at: String) -> io::Result<()> {
-    close(id.clone()).await.ok();
+    close_session(id.clone()).await.ok();
     let config = KcpConfig::default();
     let listener = KcpListener::bind(config, bind_at).await.map_err(kcp_error)?;
     let listener_id = id.clone();
@@ -69,13 +77,29 @@ pub async fn listen<R: Runtime>(window: tauri::Window<R>, id: String, bind_at: S
     Ok(())
 }
 
-pub async fn close(id: String) -> io::Result<()> {
+async fn close_session(id: String) -> io::Result<()> {
     if let Some(session) = SESSIONS.write().await.remove(&id) {
         session.task.abort();
         Ok(())
     } else {
         Err(io::Error::new(io::ErrorKind::NotFound, format!("ID {} not found.", id)))
     }
+}
+
+pub async fn close<R: Runtime>(window: tauri::Window<R>, id: String) -> io::Result<()> {
+    let result = close_session(id.clone()).await;
+    if result.is_ok() {
+        let _ = window.app_handle().emit_to(
+            window.label(),
+            "plugin://kcp",
+            Payload {
+                id,
+                event: "closed".into(),
+                data: vec![],
+            },
+        );
+    }
+    result
 }
 
 pub async fn send(id: String, message: Vec<u8>) -> io::Result<()> {

@@ -20,8 +20,8 @@ pub async fn listen<R: Runtime>(window: tauri::Window<R>, id: String, bind_at: S
 }
 
 #[tauri::command]
-pub async fn close(id: String) -> Result<()> {
-    platform::close(id).await.map_err(|e| e.into())
+pub async fn close<R: Runtime>(window: tauri::Window<R>, id: String) -> Result<()> {
+    platform::close(window, id).await.map_err(|e| e.into())
 }
 
 #[tauri::command]
