@@ -4,6 +4,7 @@ use debug_print::debug_println;
 use tokio_kcp::{KcpConfig, KcpListener, KcpStream};
 use lazy_static::lazy_static;
 use tauri::{Emitter, Manager, Runtime};
+use tokio::net::lookup_host;
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, sync::{Mutex, RwLock}, task::JoinHandle};
 
 use crate::models::{Kcp, Payload};
@@ -12,8 +13,15 @@ lazy_static! {
     static ref SESSIONS: RwLock<HashMap<String, Kcp>> = RwLock::new(HashMap::new());
 }
 
-fn parse_addr(value: &str) -> io::Result<SocketAddr> {
-    value.parse().map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+async fn resolve_addr(value: &str) -> io::Result<SocketAddr> {
+    if let Ok(address) = value.parse::<SocketAddr>() {
+        return Ok(address);
+    }
+
+    lookup_host(value)
+        .await?
+        .next()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("Host {} not found.", value)))
 }
 
 fn kcp_error(error: impl std::fmt::Display) -> io::Error {
@@ -50,7 +58,8 @@ fn spawn_receive<R: Runtime>(window: tauri::Window<R>, id: String, reader: tokio
 pub async fn connect<R: Runtime>(window: tauri::Window<R>, id: String, remote: String) -> io::Result<()> {
     close_session(id.clone()).await.ok();
     let config = KcpConfig::default();
-    let stream = KcpStream::connect(&config, parse_addr(&remote)?).await.map_err(kcp_error)?;
+    let address = resolve_addr(&remote).await?;
+    let stream = KcpStream::connect(&config, address).await.map_err(kcp_error)?;
     let (reader, writer) = tokio::io::split(stream);
     let writer = Arc::new(Mutex::new(writer));
     let task = spawn_receive(window, id.clone(), reader);
